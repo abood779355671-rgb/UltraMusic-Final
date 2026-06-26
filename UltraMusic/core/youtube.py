@@ -599,9 +599,35 @@ class YouTube:
                     return None
 
             else:
-                # ── Text search: yt-dlp للبحث فقط (metadata بدون تحميل) ────────
-                # نحصل على video ID ثم يتولى ArtistBots API التحميل الفعلي
-                track = await self._ytdlp_text_search(query, m_id)
+                # ── Text search: try py_yt first, fall back to yt-dlp ────────
+                # py_yt is faster but fails on datacenter IPs (Lightsail, etc.)
+                # yt-dlp with android client works everywhere.
+                track = None
+                try:
+                    _search = videosearch(query, limit=1)
+                    results = await asyncio.wait_for(_search.next(), timeout=8)
+                    if results and results.get("result"):
+                        data = results["result"][0]
+                        duration = data.get("duration")
+                        is_live = duration is None or duration == "LIVE"
+                        track = Track(
+                            id=data.get("id"),
+                            channel_name=data.get("channel", {}).get("name"),
+                            duration=duration if not is_live else "LIVE",
+                            duration_sec=0 if is_live else utils.to_seconds(duration),
+                            message_id=m_id,
+                            title=data.get("title", "")[:25],
+                            thumbnail=data.get("thumbnails", [{}])[-1].get("url", "").split("?")[0],
+                            url=data.get("link"),
+                            view_count=data.get("viewCount", {}).get("short"),
+                            is_live=is_live,
+                        )
+                except Exception as e:
+                    logger.warning(f"⚠️ py_yt search blocked/failed ('{query}'): {e} — falling back to yt-dlp")
+
+                # Fallback: yt-dlp ytsearch (works on Lightsail / datacenter IPs)
+                if not track:
+                    track = await self._ytdlp_text_search(query, m_id)
 
                 if not track:
                     return None
@@ -784,7 +810,7 @@ class YouTube:
         # **PERFORMANCE FIX**: Use semaphore to limit concurrent downloads
         # Prevents bandwidth saturation when 15-20 groups download simultaneously
         async with self._download_semaphore:
-            # ── ArtistBots API فقط — لا yt-dlp fallback ────────────────────────
+            # ── ArtistBots API FIRST — yt-dlp fallback if API fails ─────────────
             url_for_api = self.base + video_id
             result = None
 
@@ -796,14 +822,64 @@ class YouTube:
                 result = await self._api_download_audio(url_for_api)
             else:
                 logger.error(
-                    f"❌ ArtistBots API غير مُهيَّأ (API_URL/API_KEYS مفقودان) "
-                    f"لـ {video_id} — تعذّر التشغيل."
+                    f"❌ ArtistBots API not configured (API_URL/VIDEO_API_URL/API_KEY missing) "
+                    f"for {video_id} — falling back to yt-dlp."
                 )
-                return None
 
             if result:
                 logger.info(f"✅ [SUCCESS] Downloaded via ArtistBots API: {video_id}")
                 return result
 
-            logger.error(f"❌ ArtistBots API فشل لـ {video_id} — لا يوجد fallback.")
-            return None
+            logger.error(f"❌ ArtistBots API failed for {video_id}. Attempting yt-dlp fallback...")
+
+            # ── yt-dlp FALLBACK (when ArtistBots API is unavailable) ──────────────
+            logger.warning(f"⚠️ Falling back to yt-dlp for {video_id}...")
+
+            if video:
+                ydl_opts = {
+                    "format": f"bestvideo[height<={self._max_video_height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={self._max_video_height}]",
+                    "outtmpl": f"downloads/{video_id}.%(ext)s",
+                    "quiet": True,
+                    "no_warnings": True,
+                    "noplaylist": True,
+                    "merge_output_format": "mp4",
+                    "socket_timeout": 30,
+                    "extractor_retries": 3,
+                    "extractor_args": {"youtube": {"player_client": ["android"]}},
+                }
+            else:
+                ydl_opts = {
+                    "format": "bestaudio[ext=m4a]/bestaudio/best",
+                    "outtmpl": f"downloads/{video_id}.%(ext)s",
+                    "quiet": True,
+                    "no_warnings": True,
+                    "noplaylist": True,
+                    "socket_timeout": 30,
+                    "extractor_retries": 3,
+                    "extractor_args": {"youtube": {"player_client": ["android"]}},
+                }
+
+            cookie = self.get_cookies()
+            if cookie:
+                ydl_opts["cookiefile"] = cookie
+            if getattr(config, "YTDLP_PROXY", ""):
+                ydl_opts["proxy"] = config.YTDLP_PROXY
+
+            def _ytdlp_download():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+
+            try:
+                await asyncio.wait_for(asyncio.to_thread(_ytdlp_download), timeout=120)
+                fallback_result = self._locate_download_file(video_id, video)
+                if fallback_result:
+                    logger.info(f"✅ [FALLBACK] Downloaded via yt-dlp: {video_id}")
+                    return fallback_result
+                logger.error(f"❌ yt-dlp fallback: file not found after download for {video_id}")
+                return None
+            except asyncio.TimeoutError:
+                logger.error(f"⏰ yt-dlp fallback timed out for {video_id}")
+                return None
+            except Exception as e:
+                logger.error(f"❌ yt-dlp fallback failed for {video_id}: {e}")
+                return None
