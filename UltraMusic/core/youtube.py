@@ -179,7 +179,7 @@ class YouTube:
             return out_path
 
         params = {
-            "url": f"https://www.youtube.com/watch?v={vid}",
+            "url": vid,
             "type": download_type,
             "api_key": api_key,
         }
