@@ -605,7 +605,14 @@ class YouTube:
                 track = None
                 try:
                     _search = videosearch(query, limit=1)
-                    results = await asyncio.wait_for(_search.next(), timeout=8)
+                    # ytlookup ≥1.1 جعل next() دالة عادية (sync)، بينما الإصدارات القديمة كانت async
+                    _next_result = _search.next()
+                    if asyncio.iscoroutine(_next_result):
+                        results = await asyncio.wait_for(_next_result, timeout=8)
+                    else:
+                        results = await asyncio.wait_for(
+                            asyncio.to_thread(lambda: _next_result), timeout=8
+                        )
                     if results and results.get("result"):
                         data = results["result"][0]
                         duration = data.get("duration")
@@ -837,7 +844,7 @@ class YouTube:
 
             if video:
                 ydl_opts = {
-                    "format": f"bestvideo[height<={self._max_video_height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={self._max_video_height}]",
+                    "format": f"bestvideo[height<={self._max_video_height}]+bestaudio/best[height<={self._max_video_height}]/best",
                     "outtmpl": f"downloads/{video_id}.%(ext)s",
                     "quiet": True,
                     "no_warnings": True,
@@ -845,18 +852,18 @@ class YouTube:
                     "merge_output_format": "mp4",
                     "socket_timeout": 30,
                     "extractor_retries": 3,
-                    "extractor_args": {"youtube": {"player_client": ["android"]}},
+                    "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
                 }
             else:
                 ydl_opts = {
-                    "format": "bestaudio[ext=m4a]/bestaudio/best",
+                    "format": "bestaudio/best",
                     "outtmpl": f"downloads/{video_id}.%(ext)s",
                     "quiet": True,
                     "no_warnings": True,
                     "noplaylist": True,
                     "socket_timeout": 30,
                     "extractor_retries": 3,
-                    "extractor_args": {"youtube": {"player_client": ["android"]}},
+                    "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
                 }
 
             cookie = self.get_cookies()
