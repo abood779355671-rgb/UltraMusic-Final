@@ -1,0 +1,34 @@
+# ==============================================================================
+# requirements.txt - Python Dependencies
+# ==============================================================================
+# This file lists all Python packages required for ث¹ل´œتںل´›ت€ل´€ ل´چل´œêœ±ةھل´„ث¼.
+
+# Installation: pip install -r requirements.txt
+ 
+# Key Dependencies:
+# - aiohttp: Async HTTP client for API requests
+# - kurigram (Pyrogram): Telegram MTProto API framework
+# - pillow: Image processing for thumbnails
+# - psutil: System monitoring (CPU, RAM, disk usage)
+# - pymongo: MongoDB database driver
+# - pytgcrypto: Telegram encryption layer
+# - py-tgcalls: Voice chat streaming library
+# - ytlookup: Fast async YouTube search without API key (InnerTube)
+# - python-dotenv: Load environment variables from .env
+# - yt-dlp: YouTube video/audio downloader
+# ==============================================================================
+
+aiohttp~=3.13.5
+kurigram~=2.2.22
+pillow~=12.2.0
+psutil~=7.2.2
+pymongo~=4.17.0
+pytgcrypto~=1.2.12
+py-tgcalls>=2.2.12,<3.0.0
+ytlookup>=1.0.1
+python-dotenv~=1.2.2
+yt-dlp[default] @ git+https://github.com/yt-dlp/yt-dlp.git
+
+# Optional: إذا أردت استخدام POT_PROVIDER_URL لتجاوز قيود يوتيوب المتقدمة:
+# pip install bgutil-ytdlp-pot-provider
+# (يتطلب Node.js مثبتاً على السيرفر)
